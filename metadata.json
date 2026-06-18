@@ -1,0 +1,6 @@
+{
+  "name": "Vocabulary Organizer",
+  "description": "Organize, inspect, filter, study, and export vocabulary lists across CEFR proficiency levels (A1 to C2) with dynamic data statistics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
