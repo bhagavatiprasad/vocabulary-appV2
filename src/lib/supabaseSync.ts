@@ -68,23 +68,46 @@ export const reconstructFromSupabaseRow = (
 };
 
 /**
- * Fetch all words for the authenticated user from Supabase.
+ * Fetch all words for the authenticated user from Supabase using pagination.
+ * This bypasses the default 1000-row selection limit built into Postgrest / Supabase.
  */
 export const fetchSupabaseWords = async (supabaseClient: any, userId: string): Promise<any[]> => {
-  const { data, error } = await supabaseClient
-    .from('vocab_words')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
+  let allData: any[] = [];
+  let from = 0;
+  const limit = 1000;
+  let hasMore = true;
 
-  if (error) {
-    throw new Error(error.message);
+  while (hasMore) {
+    const to = from + limit - 1;
+    const { data, error } = await supabaseClient
+      .from('vocab_words')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (data && data.length > 0) {
+      allData = allData.concat(data);
+      if (data.length < limit) {
+        hasMore = false;
+      } else {
+        from += limit;
+      }
+    } else {
+      hasMore = false;
+    }
   }
-  return data || [];
+
+  // Return the fetched list matching original order
+  return allData.reverse();
 };
 
 /**
- * Erases existing user rows on Supabase and saves local words there.
+ * Erases existing user rows on Supabase and saves local words there in clean batches.
  */
 export const pushLocalToSupabase = async (
   supabaseClient: any,
@@ -115,13 +138,17 @@ export const pushLocalToSupabase = async (
     status: w.status,
   }));
 
-  // Note: Supabase can batch insert up to thousands of rows perfectly
-  const { error: insertError } = await supabaseClient
-    .from('vocab_words')
-    .insert(rowsToInsert);
+  // Batch insert in steps to be robust against payload size limits
+  const batchSize = 1000;
+  for (let i = 0; i < rowsToInsert.length; i += batchSize) {
+    const chunk = rowsToInsert.slice(i, i + batchSize);
+    const { error: insertError } = await supabaseClient
+      .from('vocab_words')
+      .insert(chunk);
 
-  if (insertError) {
-    throw new Error(`Insert Error: ${insertError.message}`);
+    if (insertError) {
+      throw new Error(`Insert Error (Batch ${Math.floor(i / batchSize) + 1}): ${insertError.message}`);
+    }
   }
 
   return { success: true, count: localWords.length };

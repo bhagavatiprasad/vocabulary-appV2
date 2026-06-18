@@ -63,6 +63,7 @@ export default function SupabaseSyncPanel({
 
   // Sync operations states
   const [syncStatus, setSyncStatus] = useState<'idle' | 'pushing' | 'pulling' | 'merging'>('idle');
+  const [confirmPullMode, setConfirmPullMode] = useState(false);
 
   // Monitor Auth sessions on mounting and config shifts
   useEffect(() => {
@@ -204,13 +205,14 @@ export default function SupabaseSyncPanel({
     }
   };
 
-  const doPull = async () => {
+  const doPull = async (force: boolean = false) => {
     if (!session) return;
-    if (vocabulary.length > 0) {
-      const confirmPull = window.confirm("Overwrite: This will pull matches from the cloud and completely OVERWRITE your local dictionary cache. Make sure you don't lose custom changes. Continue?");
-      if (!confirmPull) return;
+    if (vocabulary.length > 0 && !force) {
+      setConfirmPullMode(true);
+      return;
     }
 
+    setConfirmPullMode(false);
     setSyncStatus('pulling');
     setErrorText(null);
     try {
@@ -481,31 +483,57 @@ export default function SupabaseSyncPanel({
                 <CloudLightning className="w-4 h-4 text-indigo-300" />
               </button>
 
-              <div className="grid grid-cols-2 gap-2 mt-1">
-                
-                {/* Push Wordlist */}
-                <button
-                  disabled={syncStatus !== 'idle'}
-                  onClick={doPush}
-                  className="p-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg flex flex-col items-center justify-center text-center gap-1 text-[11px] font-bold shadow-xs cursor-pointer transition-all border border-slate-950"
-                  title="Overwrite Cloud completely with current local wordlist"
-                >
-                  <Upload className={`w-4 h-4 text-teal-400 ${syncStatus === 'pushing' ? 'animate-bounce' : ''}`} />
-                  <span>Push to Cloud</span>
-                </button>
+              {confirmPullMode ? (
+                <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl space-y-2.5 animate-fadeIn">
+                  <span className="text-[11px] font-bold text-amber-900 block flex items-center gap-1">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    Overwrite Local Assets Warning:
+                  </span>
+                  <p className="text-[10px] text-amber-855 leading-normal">
+                    Pulling from the cloud will completely **overwrite and erase your local dictionary cache** ({vocabulary.length} words). Ensure you have pushed any new local progress.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => doPull(true)}
+                      className="flex-1 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded transition-all cursor-pointer"
+                    >
+                      Yes, Overwrite & Pull
+                    </button>
+                    <button
+                      onClick={() => setConfirmPullMode(false)}
+                      className="py-1.5 px-3 bg-white border border-slate-350 text-slate-705 font-bold text-[10px] rounded hover:bg-slate-50 transition-all cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 mt-1">
+                  
+                  {/* Push Wordlist */}
+                  <button
+                    disabled={syncStatus !== 'idle'}
+                    onClick={doPush}
+                    className="p-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg flex flex-col items-center justify-center text-center gap-1 text-[11px] font-bold shadow-xs cursor-pointer transition-all border border-slate-950"
+                    title="Overwrite Cloud completely with current local wordlist"
+                  >
+                    <Upload className={`w-4 h-4 text-teal-400 ${syncStatus === 'pushing' ? 'animate-bounce' : ''}`} />
+                    <span>Push to Cloud</span>
+                  </button>
 
-                {/* Pull Wordlist */}
-                <button
-                  disabled={syncStatus !== 'idle'}
-                  onClick={doPull}
-                  className="p-2.5 bg-white border border-slate-250 hover:bg-slate-50 disabled:opacity-50 text-slate-700 rounded-lg flex flex-col items-center justify-center text-center gap-1 text-[11px] font-bold shadow-2xs cursor-pointer transition-all"
-                  title="Wipe local dictionary and pull all matches from remote database"
-                >
-                  <Download className={`w-4 h-4 text-blue-500 ${syncStatus === 'pulling' ? 'animate-bounce' : ''}`} />
-                  <span>Pull from Cloud</span>
-                </button>
+                  {/* Pull Wordlist */}
+                  <button
+                    disabled={syncStatus !== 'idle'}
+                    onClick={() => doPull()}
+                    className="p-2.5 bg-white border border-slate-250 hover:bg-slate-50 disabled:opacity-50 text-slate-700 rounded-lg flex flex-col items-center justify-center text-center gap-1 text-[11px] font-bold shadow-2xs cursor-pointer transition-all"
+                    title="Wipe local dictionary and pull all matches from remote database"
+                  >
+                    <Download className={`w-4 h-4 text-blue-500 ${syncStatus === 'pulling' ? 'animate-bounce' : ''}`} />
+                    <span>Pull from Cloud</span>
+                  </button>
 
-              </div>
+                </div>
+              )}
 
             </div>
 

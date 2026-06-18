@@ -80,6 +80,11 @@ export default function App() {
   // Selected word details expansion id
   const [activeWordId, setActiveWordId] = useState<string | null>(null);
 
+  // Safe inline editing & verification states
+  const [editingWordId, setEditingWordId] = useState<string | null>(null);
+  const [editField, setEditField] = useState<'meaning' | 'spelling' | 'delete' | 'resetDefault' | null>(null);
+  const [tempEditValue, setTempEditValue] = useState("");
+
   // Modern Theme visibility toggle states
   const [showJsonPanel, setShowJsonPanel] = useState(true);
   const [showImporter, setShowImporter] = useState(false);
@@ -93,6 +98,7 @@ export default function App() {
   const [newWordPos, setNewWordPos] = useState("noun");
   const [newWordMeaning, setNewWordMeaning] = useState("");
   const [newWordLevel, setNewWordLevel] = useState("A1");
+  const [addValidationError, setAddValidationError] = useState<string | null>(null);
 
   // Save vocabulary to local storage on modification
   useEffect(() => {
@@ -196,9 +202,11 @@ journey,noun,an act of traveling from one place to another,Familiar`;
   // Word node submit instantiation
   const handleCreateCustomWord = () => {
     if (!newWordSpelling.trim()) {
-      alert("Spelling word field cannot be left empty.");
+      setAddValidationError("Spelling word field cannot be left empty.");
       return;
     }
+
+    setAddValidationError(null);
 
     const levelNameMap: Record<string, string> = {
       A1: 'Elementary',
@@ -479,14 +487,39 @@ journey,noun,an act of traveling from one place to another,Familiar`;
               <Info className="w-3.5 h-3.5" />
               <span>About Corpus</span>
             </button>
-            <button
-              onClick={handleResetToDefault}
-              className="text-xs text-slate-500 hover:text-red-650 font-semibold inline-flex items-center gap-1 cursor-pointer"
-              title="Wipe custom entries and reload initial CEFR corpus dictionary values"
-            >
-              <X className="w-3.5 h-3.5" />
-              <span>Reset Template</span>
-            </button>
+            {editField === 'resetDefault' ? (
+              <div className="inline-flex items-center gap-1.5 transition-all text-xs bg-red-50 border border-red-200 px-2 py-1 rounded-lg">
+                <span className="text-red-700 font-extrabold">Wipe memory & Reset?</span>
+                <button
+                  onClick={() => {
+                    setVocabulary(defaultVocabulary);
+                    localStorage.removeItem('user_vocabulary');
+                    flashSuccess("Restored original CEFR dataset corpus.");
+                    setCurrentPage(1);
+                    setActiveWordId(null);
+                    setEditField(null);
+                  }}
+                  className="bg-red-600 hover:bg-red-700 text-white font-extrabold px-1.5 py-0.5 rounded text-[10px] cursor-pointer"
+                >
+                  Yes, Reset
+                </button>
+                <button
+                  onClick={() => setEditField(null)}
+                  className="text-slate-500 hover:text-slate-700 font-extrabold cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setEditField('resetDefault')}
+                className="text-xs text-slate-500 hover:text-red-650 font-semibold inline-flex items-center gap-1 cursor-pointer"
+                title="Wipe custom entries and reload initial CEFR corpus dictionary values"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Reset Template</span>
+              </button>
+            )}
           </div>
         </div>
       </section>
@@ -854,48 +887,144 @@ journey,noun,an act of traveling from one place to another,Familiar`;
 
                                   {/* Inline item editing modifiers */}
                                   <div className="flex items-center gap-2">
-                                    <button
-                                      onClick={() => {
-                                        const editPrompt = window.prompt(`Update dictionary meaning for "${word.word}":`, word.meaning);
-                                        if (editPrompt !== null) {
-                                          setVocabulary(prev => prev.map(w => w.id === word.id ? { ...w, meaning: editPrompt } : w));
-                                          flashSuccess(`Definition updated successfully!`);
-                                        }
-                                      }}
-                                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 rounded font-bold transition-colors"
-                                      title="Inline text editor for word meaning"
-                                    >
-                                      Edit Definition
-                                    </button>
-                                    
-                                    <button
-                                      onClick={() => {
-                                        const spellingPrompt = window.prompt(`Rename spelling name for "${word.word}":`, word.word);
-                                        if (spellingPrompt !== null && spellingPrompt.trim()) {
-                                          setVocabulary(prev => prev.map(w => w.id === word.id ? { ...w, word: spellingPrompt.trim() } : w));
-                                          flashSuccess(`Spelling modified to "${spellingPrompt.trim()}"!`);
-                                        }
-                                      }}
-                                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 rounded font-bold transition-colors"
-                                      title="Modify the exact literal spelling string"
-                                    >
-                                      Rename Spelling
-                                    </button>
+                                    {editingWordId === word.id && editField === 'meaning' ? (
+                                      <div className="flex flex-col gap-1.5 w-full bg-slate-50 border border-slate-200 p-3 rounded-lg animate-fadeIn select-none">
+                                        <label className="text-[10px] font-bold text-slate-600 block">EDIT DEFINITION MEANING:</label>
+                                        <textarea
+                                          value={tempEditValue}
+                                          onChange={(e) => setTempEditValue(e.target.value)}
+                                          className="bg-white border border-slate-300 text-xs rounded-lg p-1.5 w-full focus:outline-none focus:border-indigo-500 font-semibold select-text"
+                                          rows={2}
+                                          autoFocus
+                                        />
+                                        <div className="flex gap-1.5 justify-end">
+                                          <button
+                                            onClick={() => {
+                                              setVocabulary(prev => prev.map(w => w.id === word.id ? { ...w, meaning: tempEditValue } : w));
+                                              setEditingWordId(null);
+                                              setEditField(null);
+                                              flashSuccess(`Definition updated successfully!`);
+                                            }}
+                                            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded text-[10px] transition-all cursor-pointer"
+                                          >
+                                            Save
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              setEditingWordId(null);
+                                              setEditField(null);
+                                            }}
+                                            className="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-[10px] transition-all cursor-pointer"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : editingWordId === word.id && editField === 'spelling' ? (
+                                      <div className="flex flex-col gap-1.5 w-full bg-slate-50 border border-slate-200 p-3 rounded-lg animate-fadeIn select-none">
+                                        <label className="text-[10px] font-bold text-slate-600 block">RENAME WORD NAME:</label>
+                                        <input
+                                          type="text"
+                                          value={tempEditValue}
+                                          onChange={(e) => setTempEditValue(e.target.value)}
+                                          className="bg-white border border-slate-300 text-xs rounded-lg p-1.5 w-full focus:outline-none focus:border-indigo-500 font-bold select-text"
+                                          autoFocus
+                                        />
+                                        <div className="flex gap-1.5 justify-end">
+                                          <button
+                                            onClick={() => {
+                                              if (!tempEditValue.trim()) return;
+                                              setVocabulary(prev => prev.map(w => w.id === word.id ? { ...w, word: tempEditValue.trim() } : w));
+                                              setEditingWordId(null);
+                                              setEditField(null);
+                                              flashSuccess(`Spelling modified to "${tempEditValue.trim()}"!`);
+                                            }}
+                                            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded text-[10px] transition-all cursor-pointer"
+                                          >
+                                            Rename
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              setEditingWordId(null);
+                                              setEditField(null);
+                                            }}
+                                            className="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-[10px] transition-all cursor-pointer"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : editingWordId === word.id && editField === 'delete' ? (
+                                      <div className="flex flex-col gap-1.5 w-full bg-red-50/70 border border-red-200 p-3 rounded-md animate-fadeIn text-red-900 select-none">
+                                        <span className="text-[10px] font-bold text-red-700 flex items-center gap-1">
+                                          ⚠️ Confirm Delete Operation:
+                                        </span>
+                                        <p className="text-[10.5px] leading-normal font-semibold">
+                                          Wipe and remove **"{word.word}"** from local memory?
+                                        </p>
+                                        <div className="flex gap-1.5 justify-end transition-all mt-1">
+                                          <button
+                                            onClick={() => {
+                                              setVocabulary(prev => prev.filter(w => w.id !== word.id));
+                                              setActiveWordId(null);
+                                              setEditingWordId(null);
+                                              setEditField(null);
+                                              flashSuccess(`Deleted word entry successfully.`);
+                                            }}
+                                            className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded text-[10px] cursor-pointer"
+                                          >
+                                            Yes, Delete
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              setEditingWordId(null);
+                                              setEditField(null);
+                                            }}
+                                            className="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-55 text-slate-705 rounded text-[10px] cursor-pointer"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => {
+                                            setEditingWordId(word.id);
+                                            setEditField('meaning');
+                                            setTempEditValue(word.meaning || '');
+                                          }}
+                                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 rounded font-bold transition-colors cursor-pointer"
+                                          title="Inline text editor for word meaning"
+                                        >
+                                          Edit Definition
+                                        </button>
+                                        
+                                        <button
+                                          onClick={() => {
+                                            setEditingWordId(word.id);
+                                            setEditField('spelling');
+                                            setTempEditValue(word.word);
+                                          }}
+                                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 rounded font-bold transition-colors cursor-pointer"
+                                          title="Modify the exact literal spelling string"
+                                        >
+                                          Rename Spelling
+                                        </button>
 
-                                    <button
-                                      onClick={() => {
-                                        if (window.confirm(`Verify delete: Remove "${word.word}" from vocabulary library?`)) {
-                                          setVocabulary(prev => prev.filter(w => w.id !== word.id));
-                                          setActiveWordId(null);
-                                          flashSuccess(`Deleted word entry successfully.`);
-                                        }
-                                      }}
-                                      className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-800 rounded font-bold transition-colors inline-flex items-center gap-1"
-                                      title="Remove from localized catalog memory"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                      <span>Delete Row</span>
-                                    </button>
+                                        <button
+                                          onClick={() => {
+                                            setEditingWordId(word.id);
+                                            setEditField('delete');
+                                          }}
+                                          className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-850 rounded font-bold transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                          title="Remove from localized catalog memory"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                          <span>Delete Row</span>
+                                        </button>
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -1126,7 +1255,10 @@ creative,adjective,having good imagination or original ideas,Mastered"
                   </h3>
                 </div>
                 <button 
-                  onClick={() => setShowAddWordModal(false)}
+                  onClick={() => {
+                    setShowAddWordModal(false);
+                    setAddValidationError(null);
+                  }}
                   className="text-slate-400 hover:text-slate-700 font-bold text-xs"
                 >
                   ✕
@@ -1136,6 +1268,13 @@ creative,adjective,having good imagination or original ideas,Mastered"
               {/* Wizard Form Frame */}
               <div className="py-4 space-y-4">
                 
+                {addValidationError && (
+                  <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg font-bold flex items-center gap-1.5 animate-fadeIn">
+                    <span>⚠️</span>
+                    <span>{addValidationError}</span>
+                  </div>
+                )}
+
                 {/* Spelling Word */}
                 <div className="space-y-1">
                   <label className="font-bold text-slate-700 text-xs block">
