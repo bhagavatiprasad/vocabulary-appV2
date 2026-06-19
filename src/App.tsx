@@ -119,7 +119,6 @@ export default function App() {
   const [showImporter, setShowImporter] = useState(false);
   const [showAddWordModal, setShowAddWordModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
-  const [showGithubGuide, setShowGithubGuide] = useState(false);
   const [showSupabaseModal, setShowSupabaseModal] = useState(false);
 
   // Custom modal state inputs for Adding Words
@@ -845,7 +844,7 @@ journey,noun,an act of traveling from one place to another,Familiar`;
             >
               <Plus className="w-4 h-4" />
               <span>Add Word Wizard</span>
-  
+            </button>
           </div>
         </div>
       </header>
@@ -1782,12 +1781,11 @@ creative,adjective,having good imagination or original ideas,Mastered"
                   Close
                 </button>
               </div>
+        
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-
-
 
       {/* --- ACCENTS TO CONSOLE --- */}
       <AnimatePresence>
