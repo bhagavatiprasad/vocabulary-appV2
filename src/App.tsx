@@ -253,8 +253,12 @@ export default function App() {
     setAuthLoading(true);
     setAuthError(null);
     try {
+      let redirectToUrl = window.location.origin;
+      if (window.location.host.includes("github.io")) {
+        redirectToUrl = "https://bhagavatiprasad.github.io/vocabulary-appV2/";
+      }
       const { error } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail.trim(), {
-        redirectTo: window.location.origin,
+        redirectTo: redirectToUrl,
       });
       if (error) throw error;
       setPasswordResetSent(true);
