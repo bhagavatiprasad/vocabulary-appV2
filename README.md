@@ -1,20 +1,48 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# VocabCanvas CEFR — Dataset Curation Engine
 
-# Run and deploy your AI Studio app
+VocabCanvas CEFR is a professional-grade, interactive dataset curation workspace designed to curate, analyze, and manage vocabulary datasets categorized under the **Common European Framework of Reference for Languages (CEFR)**. 
 
-This contains everything you need to run your app locally.
+Featuring an elegant, high-density dashboard, the application allows developers, educators, and language experts to build structured custom corpus files, import bulk data via a reliable CSV processor, and persist everything to an offline-first container or sync it with a remote PostgreSQL database via Supabase.
 
-View your app in AI Studio: https://ai.studio/apps/ad158852-498b-4a57-9455-a0ca1af8de87
+---
 
-## Run Locally
+## 🚀 Core Features
 
-**Prerequisites:**  Node.js
+- **CEFR Standard Hierarchy**: Quickly browse and categorize words into standard tiers from **A1 (Elementary)** up to **C2 (Proficiency)**.
+- **Add Word Wizard**: A clean design modal to configure custom definitions, classification tiers, parts of speech (verbs, nouns, prepositions), and mastery states (*All States, Learning, Familiar, Mastered*).
+- **Automated CSV Row Importer**: Streamlined CSV parsing that parses headings and populates customized dictionary entries.
+- **Supabase Cloud Sync Panel**: Fully synchronized operations (Push and Pull sync) with standard Row-Level Security (RLS) support to keep client state backed up.
+- **Dynamic Indicators**: Interactive progress rings, level density visual meters, and comprehensive structural filters.
 
+---
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## ⚙️ Supabase Configuration Guide
+
+To ensure that features like **User Authentication**, **Database Actions**, and target **Password Recovery Redirects** work correctly without 404 errors, follow these setup steps:
+
+### 1. Configure the Site URL & Allowed Redirects
+When users click their recovery link in their password reset email, Supabase needs authorization to forward them securely back to your live GitHub Pages repository namespace.
+
+1. Go to your [Supabase Dashboard](https://supabase.com).
+2. Select your project **`ojkmqivtyzyqkvpxqaok`** (or your active project container).
+3. Navigate to **Authentication** (under the side menu) $\rightarrow$ **URL Configuration**.
+4. Configure the following inputs:
+   - **Site URL**: 
+     ```
+     https://bhagavatiprasad.github.io/vocabulary-appV2/
+     ```
+   - **Redirect URLs** (Add as safe patterns):
+     - `https://bhagavatiprasad.github.io/vocabulary-appV2/`
+     - `https://bhagavatiprasad.github.io/**` (Wildcard pattern supporting sub-routes)
+5. Click **Save Changes**.
+
+---
+
+## 🛠️ Local Development & Deployment
+
+This is a modern front-end application built with **React**, **Vite**, **TypeScript**, and **Tailwind CSS**.
+
+### Initial Installation
+Install all required dependencies:
+```bash
+npm install
