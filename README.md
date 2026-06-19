@@ -1,4 +1,4 @@
-# VocabCanvas CEFR – Dataset Curation Engine
+# VocabCanvas CEFR WEBAPP
 
 VocabCanvas CEFR is a professional corpus editor and language vocabulary tracker built to manage, filter, and track words categorized by the Common European Framework of Reference for Languages (CEFR) standards (A1 to C2). 
 
