@@ -6,7 +6,7 @@ This project was built with the assistance of Google AI Studio and Gemini models
 
 ## 🚀 Live Demo
 You can access the live web application here:
-👉 [https://bhagavatiprasad.github.io/my-vocabulary-app/](https://bhagavatiprasad.github.io/my-vocabulary-app/)
+👉 [Access APP HERE](https://bhagavatiprasad.github.io/vocabulary-appV2/)
 
 ---
 
