@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, Fragment } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, 
@@ -31,14 +31,43 @@ import {
   ChevronDown,
   Trash2,
   Plus,
-  ExternalLink
+  ExternalLink,
+  Sun,
+  Moon,
+  Lock,
+  Mail,
+  UserPlus,
+  LogIn
 } from 'lucide-react';
 import { defaultVocabulary, cefrLevels } from './data/defaultVocabulary';
 import { parseVocabularyCSV } from './utils/csvParser';
 import { VocabularyWord } from './types';
 import SupabaseSyncPanel from './components/SupabaseSyncPanel';
+import { supabase } from './lib/supabase';
+import { syncSingleWordToCloud, deleteSingleWordFromCloud } from './lib/supabaseSync';
 
 export default function App() {
+  // Authentication states
+  const [session, setSession] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Forgot password flow states
+  const [forgotPasswordActive, setForgotPasswordActive] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [passwordResetSent, setPasswordResetSent] = useState(false);
+
+  // Reset password popup/modal
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [resetError, setResetError] = useState<string | null>(null);
+
+  const isDark = false;
+
   // Vocabulary Database State
   const [vocabulary, setVocabulary] = useState<VocabularyWord[]>(() => {
     const saved = localStorage.getItem('user_vocabulary');
@@ -49,7 +78,11 @@ export default function App() {
         console.error("Failed to parse saved vocabulary", e);
       }
     }
-    return defaultVocabulary;
+    // Default fallback vocabulary starts with status: 'Familiar'
+    return defaultVocabulary.map(w => ({
+      ...w,
+      status: w.status === 'Learning' ? 'Familiar' : w.status
+    }));
   });
 
   // UI Filter States
@@ -100,6 +133,184 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('user_vocabulary', JSON.stringify(vocabulary));
   }, [vocabulary]);
+
+  // Authenticate, password recovery listeners
+  useEffect(() => {
+    // Determine initially active session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setSession(session);
+      setAuthLoading(false);
+
+      if (event === 'PASSWORD_RECOVERY') {
+        setShowResetPasswordModal(true);
+      }
+    });
+
+    // Check url hash for recovery redirect: e.g. #access_token=...&type=recovery
+    if (window.location.hash && window.location.hash.includes('type=recovery')) {
+      setShowResetPasswordModal(true);
+    }
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Sync user's cloud changes dynamically when session is active
+  useEffect(() => {
+    if (session?.user?.id) {
+      const loadUserCloudWords = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('vocab_words')
+            .select('*')
+            .eq('user_id', session.user.id);
+          
+          if (error) throw error;
+          if (data && data.length > 0) {
+            // Reconstruct overlaying on defaults
+            const reconstructedMap = new Map<string, VocabularyWord>();
+            defaultVocabulary.forEach((originalWord: VocabularyWord) => {
+              const key = `${originalWord.word.toLowerCase()}_${originalWord.level.toLowerCase()}`;
+              reconstructedMap.set(key, { ...originalWord });
+            });
+
+            data.forEach((row: any) => {
+              const level = row.classification as any;
+              const key = `${row.word.toLowerCase()}_${level.toLowerCase()}`;
+              const matchedDefault = defaultVocabulary.find(
+                w => w.word.toLowerCase() === row.word.toLowerCase() && w.level === level
+              );
+              reconstructedMap.set(key, {
+                id: row.id,
+                word: row.word,
+                pos: row.type || 'noun',
+                meaning: matchedDefault?.meaning || "Definition imported from cloud database.",
+                status: row.status || 'Familiar',
+                level: level,
+                levelName: matchedDefault?.levelName || level,
+              });
+            });
+
+            setVocabulary(Array.from(reconstructedMap.values()));
+          }
+        } catch (err) {
+          console.warn("Could not auto-fetch user cache:", err);
+        }
+      };
+      loadUserCloudWords();
+    }
+  }, [session]);
+
+  // Auth Operations
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail.trim() || !authPassword.trim()) {
+      setAuthError("Email and password cannot be empty.");
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      if (isSignUp) {
+        const { data, error } = await supabase.auth.signUp({
+          email: authEmail.trim(),
+          password: authPassword.trim()
+        });
+        if (error) throw error;
+        if (data.session) {
+          flashSuccess("Success! Account created and authenticated.");
+        } else {
+          flashSuccess("Success! Account registered. Please verify your email inbox if required.");
+          setIsSignUp(false); // return to sign in
+        }
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: authEmail.trim(),
+          password: authPassword.trim()
+        });
+        if (error) throw error;
+        flashSuccess("Welcome back! Cloud sync session verified.");
+      }
+    } catch (err: any) {
+      setAuthError(err.message || "Failed to authenticate.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotPasswordEmail.trim()) {
+      setAuthError("Please type your recovery email address.");
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail.trim(), {
+        redirectTo: window.location.origin,
+      });
+      if (error) throw error;
+      setPasswordResetSent(true);
+      flashSuccess("Verification message dispatched via Supabase cloud!");
+    } catch (err: any) {
+      setAuthError(err.message || "Failed to trigger recovery event.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleUpdatePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword.length < 6) {
+      setResetError("Secret password must contain at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setResetError("Passwords do not match.");
+      return;
+    }
+    setAuthLoading(true);
+    setResetError(null);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      
+      flashSuccess("Account key updated successfully! Please login again with your new credentials.");
+      setShowResetPasswordModal(false);
+      setNewPassword('');
+      setConfirmNewPassword('');
+      await supabase.auth.signOut();
+    } catch (err: any) {
+      setResetError(err.message || "Failed to update user password.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogOut = async () => {
+    setAuthLoading(true);
+    try {
+      await supabase.auth.signOut();
+      localStorage.removeItem('user_vocabulary');
+      // Revert vocabulary to pristine state with status: 'Familiar'
+      setVocabulary(defaultVocabulary.map(w => ({
+        ...w,
+        status: w.status === 'Learning' ? 'Familiar' : w.status
+      })));
+      flashSuccess("Logged out of sync profile.");
+    } catch (err: any) {
+      console.error(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
   // Flush positive prompt indicator
   const flashSuccess = (msg: string) => {
@@ -178,7 +389,11 @@ journey,noun,an act of traveling from one place to another,Familiar`;
   const handleToggleStatus = (id: string, newStatus: 'Learning' | 'Familiar' | 'Mastered') => {
     setVocabulary(prev => prev.map(word => {
       if (word.id === id) {
-        return { ...word, status: newStatus };
+        const updated = { ...word, status: newStatus };
+        if (session?.user?.id) {
+          syncSingleWordToCloud(supabase, session.user.id, updated);
+        }
+        return updated;
       }
       return word;
     }));
@@ -187,9 +402,20 @@ journey,noun,an act of traveling from one place to another,Familiar`;
   // Clean wipe storage resets
   const handleResetToDefault = () => {
     if (window.confirm("Verify resets: Clear custom words and restore original CEFR dataset standards?")) {
-      setVocabulary(defaultVocabulary);
+      const resetList = defaultVocabulary.map(w => ({
+        ...w,
+        status: w.status === 'Learning' ? 'Familiar' : w.status
+      }));
+      setVocabulary(resetList);
       localStorage.removeItem('user_vocabulary');
-      flashSuccess("Restored original CEFR dataset corpus.");
+      if (session?.user?.id) {
+        // Clear database, then repopulate only the modified elements (which is 0 initially)
+        supabase.from('vocab_words').delete().eq('user_id', session.user.id).then(() => {
+          flashSuccess("Restored original CEFR dataset corpus.");
+        });
+      } else {
+        flashSuccess("Restored original CEFR dataset corpus.");
+      }
       setCurrentPage(1);
       setActiveWordId(null);
     }
@@ -219,12 +445,15 @@ journey,noun,an act of traveling from one place to another,Familiar`;
       word: newWordSpelling.trim(),
       pos: newWordPos.trim().toLowerCase(),
       meaning: newWordMeaning.trim() || "No explicit definition specified.",
-      status: 'Learning',
+      status: 'Familiar', // default status to 'Familiar'
       level: newWordLevel as any,
       levelName: levelNameMap[newWordLevel] || 'Elementary'
     };
 
     setVocabulary(prev => [newWordItem, ...prev]);
+    if (session?.user?.id) {
+      syncSingleWordToCloud(supabase, session.user.id, newWordItem);
+    }
     flashSuccess(`Added custom entry "${newWordSpelling.trim()}" successfully.`);
     
     // Clear & dismiss modals
@@ -278,28 +507,289 @@ journey,noun,an act of traveling from one place to another,Familiar`;
     return vocabulary.find(w => w.id === activeWordId) || null;
   }, [vocabulary, activeWordId]);
 
+  if (authLoading) {
+    return (
+      <div className={`min-h-screen font-sans flex flex-col justify-center items-center p-4 ${isDark ? 'bg-black text-slate-100' : 'bg-slate-50 text-slate-800'}`}>
+        <div className="flex flex-col items-center gap-3">
+          <RefreshCw className="w-10 h-10 text-indigo-600 animate-spin" />
+          <span className="text-xs font-mono font-bold tracking-wider uppercase">Checking sync authorization state...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="min-h-screen font-sans flex flex-col justify-center items-center p-4 transition-all relative bg-slate-50 text-slate-800">
+        
+        <div className="w-full max-w-md">
+          
+          {/* Logo / Branding */}
+          <div className="text-center mb-8">
+            <div className="w-14 h-14 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg mx-auto mb-3 animate-bounce">
+              <GraduationCap className="w-8 h-8" />
+            </div>
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
+              VocabCanvas CEFR
+            </h1>
+            <p className="text-xs mt-1 font-semibold text-slate-500">
+              Verified Account Required to Gain Database Sandbox Access
+            </p>
+          </div>
+
+          <div className="p-6 rounded-2xl border shadow-xl bg-white border-slate-200">
+            
+            {/* Header message */}
+            <div className="mb-6 flex items-center gap-2">
+              <Lock className="w-4 h-4 text-indigo-500" />
+              <span className="text-xs font-bold tracking-wider font-mono uppercase text-indigo-500">
+                {forgotPasswordActive ? "Recover Credentials" : isSignUp ? "Create Workspace Key" : "Authenticate Session"}
+              </span>
+            </div>
+
+            {/* ERROR BANNER */}
+            {authError && (
+              <div className={`p-3 rounded-lg border text-xs font-semibold mb-4 ${isDark ? 'bg-red-950/40 border-red-900/60 text-red-300' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                {authError}
+              </div>
+            )}
+
+            {/* Reset Password Sent Alert */}
+            {passwordResetSent && (
+              <div className={`p-3 rounded-lg border text-xs font-semibold mb-4 leading-relaxed ${isDark ? 'bg-emerald-950/40 border-emerald-900/60 text-emerald-300' : 'bg-emerald-50 border-emerald-250 text-emerald-700'}`}>
+                ✨ Password reset verification received! Please monitor your inbox and search updates for a reset hyperlink message from Supabase.
+              </div>
+            )}
+
+            {forgotPasswordActive ? (
+              /* FORGOT PASSWORD FORM */
+              <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+                <div className="space-y-1">
+                  <label className={`text-xs font-bold block ${isDark ? 'text-zinc-300' : 'text-slate-700'}`}>
+                    Account Email Address:
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                    <input
+                      type="email"
+                      required
+                      value={forgotPasswordEmail}
+                      onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                      className={`w-full border rounded-lg p-2.5 pl-9 text-xs focus:outline-none ${isDark ? 'bg-zinc-900 border-zinc-750 text-slate-200 focus:border-indigo-500' : 'bg-white border-slate-300 text-slate-800 focus:border-indigo-500'}`}
+                      placeholder="e.g. curator@example.com"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={authLoading}
+                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg cursor-pointer transition-all flex items-center justify-center gap-1.5 focus:outline-none"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${authLoading ? 'animate-spin' : ''}`} />
+                  <span>Send Recovery Email Flow</span>
+                </button>
+
+                <div className="pt-2 text-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotPasswordActive(false);
+                      setPasswordResetSent(false);
+                    }}
+                    className={`text-xs font-bold transition-all ${isDark ? 'text-zinc-400 hover:text-zinc-200' : 'text-indigo-600 hover:text-indigo-800'}`}
+                  >
+                    ← Return to Connection Lobby
+                  </button>
+                </div>
+              </form>
+            ) : (
+              /* LOGIN & SIGNUP FORM */
+              <form onSubmit={handleLoginSubmit} className="space-y-4">
+                
+                <div className="space-y-1">
+                  <label className={`text-xs font-bold block ${isDark ? 'text-zinc-300' : 'text-slate-700'}`}>
+                    Email Address:
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 absolute left-3 top-3 text-slate-400 font-bold" />
+                    <input
+                      type="email"
+                      required
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      className={`w-full border rounded-lg p-2.5 pl-9 text-xs focus:outline-none ${isDark ? 'bg-zinc-900 border-zinc-750 text-slate-200 focus:border-indigo-500' : 'bg-white border-slate-300 text-slate-800 focus:border-indigo-500'}`}
+                      placeholder="curator@example.com"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center">
+                    <label className={`text-xs font-bold block ${isDark ? 'text-zinc-300' : 'text-slate-700'}`}>
+                      Secret Password:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setForgotPasswordActive(true)}
+                      className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer focus:outline-none"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                  <input
+                    type="password"
+                    required
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    className={`w-full border rounded-lg p-2.5 text-xs focus:outline-none ${isDark ? 'bg-zinc-900 border-zinc-750 text-slate-200 focus:border-indigo-500' : 'bg-white border-slate-300 text-slate-800 focus:border-indigo-500'}`}
+                    placeholder="••••••••••••"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={authLoading}
+                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-md focus:outline-none"
+                >
+                  {isSignUp ? (
+                    <>
+                      <UserPlus className="w-3.5 h-3.5 shrink-0" />
+                      <span>Register New Workspace</span>
+                    </>
+                  ) : (
+                    <>
+                      <LogIn className="w-3.5 h-3.5 shrink-0" />
+                      <span>Authenticate Workspace</span>
+                    </>
+                  )}
+                </button>
+
+                <div className="pt-2 text-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSignUp(!isSignUp);
+                      setAuthError(null);
+                    }}
+                    className={`text-xs font-bold hover:underline ${isDark ? 'text-zinc-400 hover:text-zinc-200' : 'text-slate-600 hover:text-slate-900'}`}
+                  >
+                    {isSignUp ? "Already registered? Login to existing profile" : "New curator database? Register profile here"}
+                  </button>
+                </div>
+
+              </form>
+            )}
+
+          </div>
+
+          <div className="text-center mt-6">
+            <span className={`text-[10px] font-semibold tracking-wide ${isDark ? 'text-zinc-650' : 'text-slate-400'}`}>
+              VocabCanvas CEFR • Robust Cloud-Persisted Diagnostic System
+            </span>
+          </div>
+
+        </div>
+
+      </div>
+    );
+  }
+
+  // Define dynamic class mappings to keep HTML layout compliant with Theme choices
+  const isDarkClass = isDark ? 'bg-zinc-950 text-slate-100 border-zinc-800' : 'bg-white text-slate-800 border-slate-205';
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col antialiased">
+    <div className={`min-h-screen font-sans flex flex-col antialiased transition-colors ${isDark ? 'bg-black text-slate-100' : 'bg-slate-50 text-slate-850'}`}>
       
+      {/* 4. PASSWORDS RESET POPUP MODAL */}
+      <AnimatePresence>
+        {showResetPasswordModal && (
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-xs z-50 flex items-center justify-center p-4 select-none">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className={`w-full max-w-sm rounded-2xl border p-6 shadow-2xl relative ${isDark ? 'bg-zinc-950 border-zinc-805 text-zinc-100' : 'bg-white border-slate-200 text-slate-800'}`}
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <RefreshCw className="w-4 h-4 text-indigo-500 animate-spin" />
+                <h3 className={`text-sm font-extrabold font-sans uppercase tracking-wider ${isDark ? 'text-zinc-100' : 'text-slate-900'}`}>
+                  Custom Password Recovery
+                </h3>
+              </div>
+
+              {resetError && (
+                <div className={`p-2.5 rounded-lg border text-[11px] font-semibold mb-3 ${isDark ? 'bg-red-950/40 border-red-900/40 text-red-300' : 'bg-red-50 border-red-150 text-red-705'}`}>
+                  {resetError}
+                </div>
+              )}
+
+              <form onSubmit={handleUpdatePasswordSubmit} className="space-y-4">
+                <div className="space-y-1">
+                  <label className={`text-[11px] uppercase font-bold block ${isDark ? 'text-zinc-300' : 'text-slate-650'}`}>
+                    Specify New Secret Password:
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className={`w-full border rounded-lg p-2 text-xs focus:outline-none ${isDark ? 'bg-zinc-900 border-zinc-750 text-slate-200 focus:border-indigo-500' : 'bg-white border-slate-300 text-slate-805 focus:border-indigo-500'}`}
+                    placeholder="Min 6 characters"
+                  />
+                </div>
+
+                <div className="space-y-1 font-sans">
+                  <label className={`text-[11px] uppercase font-bold block ${isDark ? 'text-zinc-300' : 'text-slate-650'}`}>
+                    Confirm Secret Password:
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    className={`w-full border rounded-lg p-2 text-xs focus:outline-none ${isDark ? 'bg-zinc-900 border-zinc-750 text-slate-200 focus:border-indigo-500' : 'bg-white border-slate-300 text-slate-805 focus:border-indigo-500'}`}
+                    placeholder="Match exactly"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={authLoading}
+                  className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg cursor-pointer transition-all shadow-sm focus:outline-none"
+                >
+                  Save Account Key Settings
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* GLOBAL HEADER BAR */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40 px-4 py-3 shadow-xs">
+      <header className={`border-b sticky top-0 z-40 px-4 py-3 shadow-xs transition-colors ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-slate-200'}`}>
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           
           {/* Brand Logo & Badging titles */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 text-white rounded-lg flex items-center justify-center shadow-md animate-pulse">
+            <div className="w-10 h-10 bg-indigo-600 text-white rounded-lg flex items-center justify-center shadow-md animate-pulse shrink-0">
               <GraduationCap className="w-6 h-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-lg font-extrabold text-slate-900 tracking-tight">
+                <h1 className={`text-lg font-extrabold tracking-tight ${isDark ? 'text-zinc-50' : 'text-slate-900'}`}>
                   VocabCanvas CEFR
                 </h1>
-                <span className="bg-indigo-50 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-indigo-100 uppercase tracking-wide">
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide shrink-0 ${isDark ? 'bg-indigo-950/40 text-indigo-300 border-indigo-900' : 'bg-indigo-50 text-indigo-700 border-indigo-100'}`}>
                   Dataset Curation Engine
                 </span>
+                {session && (
+                  <span className={`text-[9px] font-mono font-bold border px-1.5 py-0.5 rounded ${isDark ? 'bg-zinc-900 text-zinc-400 border-zinc-750' : 'bg-slate-105 text-slate-500 border-slate-250'}`}>
+                    ID: {session.user.email.split('@')[0]}
+                  </span>
+                )}
               </div>
-              <p className="text-xs text-slate-500 font-medium">
+              <p className={`text-xs font-medium ${isDark ? 'text-zinc-450' : 'text-slate-500'}`}>
                 Professional corpus editor with live structured export capabilities
               </p>
             </div>
@@ -314,11 +804,15 @@ journey,noun,an act of traveling from one place to another,Familiar`;
                 setShowSupabaseModal(true);
                 flashSuccess("Opened Cloud Sync dashboard.");
               }}
-              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg flex items-center gap-1.5 border border-indigo-200 transition-all cursor-pointer shadow-3xs"
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 border transition-all cursor-pointer shadow-3xs focus:outline-none ${
+                isDark 
+                  ? 'bg-indigo-950/20 hover:bg-indigo-950/40 text-indigo-300 border-indigo-900' 
+                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+              }`}
               title="Synchronize, backup, or load your vocabulary cards with Supabase Postgres"
             >
-              <Database className="w-4 h-4 text-indigo-600 shrink-0" />
-              <span>Supabase Sync</span>
+              <Database className={`w-4 h-4 shrink-0 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`} />
+              <span>Cloud Storage Sync</span>
             </button>
 
             {/* Excel Row Importer visibility trigger */}
@@ -327,23 +821,23 @@ journey,noun,an act of traveling from one place to another,Familiar`;
                 setShowImporter(!showImporter);
                 flashSuccess(showImporter ? "Spreadsheet row importer panel shut" : "Excel spreadsheet copy/paste importer panel active.");
               }}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 border transition-all cursor-pointer ${
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 border transition-all cursor-pointer focus:outline-none ${
                 showImporter 
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-inner hover:bg-emerald-100' 
-                  : 'bg-white text-slate-705 hover:bg-slate-50 border-slate-200'
+                  ? (isDark ? 'bg-emerald-950/30 text-emerald-300 border-emerald-900' : 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-inner') 
+                  : (isDark ? 'bg-zinc-900 text-zinc-305 hover:bg-zinc-800 border-zinc-750' : 'bg-white text-slate-705 hover:bg-slate-50 border-slate-200')
               }`}
               title="Toggle Pasteable Spreadsheet rows panel"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              <span>{showImporter ? "Row Importer Active" : "Show CSV Importer"}</span>
+              <span>{showImporter ? "Row Importer Active" : "CSV Row Importer"}</span>
             </button>
 
-            <div className="h-6 w-px bg-slate-200" />
+            <div className={`h-6 w-px ${isDark ? 'bg-zinc-800' : 'bg-slate-200'}`} />
 
             {/* Add Custom Vocabulary item trigger */}
             <button
               onClick={() => setShowAddWordModal(true)}
-              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-md hover:shadow-lg transition-all cursor-pointer"
+              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-md hover:shadow-lg transition-all cursor-pointer focus:outline-none"
             >
               <Plus className="w-4 h-4" />
               <span>Add Word Wizard</span>
@@ -352,7 +846,11 @@ journey,noun,an act of traveling from one place to another,Familiar`;
             {/* Custom GitHub Hosting Info trigger */}
             <button
               onClick={() => setShowGithubGuide(true)}
-              className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-sm transition-all cursor-pointer focus:outline-none ${
+                isDark 
+                  ? 'bg-zinc-900 border border-zinc-750 hover:bg-zinc-850 text-zinc-100' 
+                  : 'bg-slate-900 hover:bg-slate-800 text-white'
+              }`}
               title="Display information on how to build and host this on your custom GitHub Pages"
             >
               <ExternalLink className="w-3.5 h-3.5 text-slate-300" />
@@ -363,42 +861,42 @@ journey,noun,an act of traveling from one place to another,Familiar`;
       </header>
 
       {/* SYSTEM META METRIC PROGRESS MONITORING BLOCK */}
-      <section className="bg-slate-100/80 border-b border-slate-200 py-3 px-4 shadow-3xs select-none">
+      <section className={`border-b py-3 px-4 shadow-3xs select-none transition-colors ${isDark ? 'bg-zinc-900/80 border-zinc-850' : 'bg-slate-100/80 border-slate-200'}`}>
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
           
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
-            <span className="text-xs text-slate-500 font-bold tracking-wide uppercase font-mono">
+            <span className={`text-[10px] font-bold tracking-wide uppercase font-mono ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
               CURATION ACTIVE
             </span>
-            <span className="text-xs text-slate-400 font-medium">•</span>
-            <span className="text-xs font-semibold text-slate-650 bg-white border px-1.5 py-0.5 rounded-sm">
+            <span className={`text-xs font-medium ${isDark ? 'text-zinc-650' : 'text-slate-300'}`}>•</span>
+            <span className={`text-xs font-semibold border px-1.5 py-0.5 rounded-sm ${isDark ? 'text-zinc-350 bg-zinc-950 border-zinc-800' : 'text-slate-650 bg-white border-slate-200'}`}>
               UTF-8 Live Cache
             </span>
           </div>
 
           <div className="text-xs text-slate-600 font-medium flex items-center gap-2">
             <span className="font-mono text-[11px] text-slate-400">Mastered Progress:</span>
-            <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+            <div className={`w-full rounded-full h-2 overflow-hidden ${isDark ? 'bg-zinc-800' : 'bg-slate-205'}`}>
               <div 
                 className="bg-emerald-500 h-2 rounded-full transition-all duration-500" 
                 style={{ width: `${stats.masteredPercentage}%` }} 
               />
             </div>
-            <span className="font-mono text-[11px] font-bold text-emerald-600 shrink-0">
+            <span className={`font-mono text-[11px] font-bold shrink-0 ${isDark ? 'text-emerald-400' : 'text-emerald-650'}`}>
               {stats.masteredPercentage}% ({stats.mastered} words)
             </span>
           </div>
 
-          <div className="text-xs text-slate-600 font-medium flex items-center gap-2">
+          <div className={`text-xs font-medium flex items-center gap-2 ${isDark ? 'text-zinc-300' : 'text-slate-605'}`}>
             <span className="font-mono text-[11px] text-slate-400">Learning Active:</span>
-            <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+            <div className={`w-full rounded-full h-2 overflow-hidden ${isDark ? 'bg-zinc-800' : 'bg-slate-205'}`}>
               <div 
                 className="bg-amber-450 h-2 rounded-full transition-all duration-500" 
                 style={{ width: `${stats.learningPercentage}%` }} 
               />
             </div>
-            <span className="font-mono text-[11px] font-bold text-amber-600 shrink-0">
+            <span className={`font-mono text-[11px] font-bold shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-655'}`}>
               {stats.learningPercentage}% ({stats.learning} words)
             </span>
           </div>
@@ -406,19 +904,29 @@ journey,noun,an act of traveling from one place to another,Familiar`;
           <div className="flex justify-end gap-2.5">
             <button
               onClick={() => setShowAboutModal(true)}
-              className="text-xs text-indigo-650 hover:text-indigo-800 font-semibold inline-flex items-center gap-1 cursor-pointer"
+              className="text-xs font-semibold inline-flex items-center gap-1 cursor-pointer focus:outline-none text-indigo-600 hover:text-indigo-800"
             >
               <Info className="w-3.5 h-3.5" />
               <span>About Corpus</span>
             </button>
             {editField === 'resetDefault' ? (
-              <div className="inline-flex items-center gap-1.5 transition-all text-xs bg-red-50 border border-red-200 px-2 py-1 rounded-lg">
-                <span className="text-red-700 font-extrabold">Wipe memory & Reset?</span>
+              <div className="inline-flex items-center gap-1.5 transition-all text-xs border px-2 py-1 rounded-lg bg-red-50 border-red-200 text-red-700">
+                <span className="font-extrabold font-sans">Wipe memory & Reset?</span>
                 <button
                   onClick={() => {
-                    setVocabulary(defaultVocabulary);
+                    const resetList = defaultVocabulary.map(w => ({
+                      ...w,
+                      status: 'Familiar' as any
+                    }));
+                    setVocabulary(resetList);
                     localStorage.removeItem('user_vocabulary');
-                    flashSuccess("Restored original CEFR dataset corpus.");
+                    if (session?.user?.id) {
+                      supabase.from('vocab_words').delete().eq('user_id', session.user.id).then(() => {
+                        flashSuccess("Restored original CEFR dataset corpus.");
+                      });
+                    } else {
+                      flashSuccess("Restored original CEFR dataset corpus.");
+                    }
                     setCurrentPage(1);
                     setActiveWordId(null);
                     setEditField(null);
@@ -429,7 +937,7 @@ journey,noun,an act of traveling from one place to another,Familiar`;
                 </button>
                 <button
                   onClick={() => setEditField(null)}
-                  className="text-slate-500 hover:text-slate-700 font-extrabold cursor-pointer"
+                  className="font-semibold cursor-pointer text-slate-500 hover:text-slate-700"
                 >
                   Cancel
                 </button>
@@ -437,7 +945,7 @@ journey,noun,an act of traveling from one place to another,Familiar`;
             ) : (
               <button
                 onClick={() => setEditField('resetDefault')}
-                className="text-xs text-slate-500 hover:text-red-650 font-semibold inline-flex items-center gap-1 cursor-pointer"
+                className="text-xs font-semibold inline-flex items-center gap-1 cursor-pointer focus:outline-none text-slate-500 hover:text-red-600"
                 title="Wipe custom entries and reload initial CEFR corpus dictionary values"
               >
                 <X className="w-3.5 h-3.5" />
@@ -731,7 +1239,7 @@ journey,noun,an act of traveling from one place to another,Familiar`;
                     };
 
                     return (
-                      <>
+                      <Fragment key={word.id}>
                         <tr
                           key={word.id}
                           onClick={() => setActiveWordId(isSelected ? null : word.id)}
@@ -824,7 +1332,11 @@ journey,noun,an act of traveling from one place to another,Familiar`;
                                         <div className="flex gap-1.5 justify-end">
                                           <button
                                             onClick={() => {
-                                              setVocabulary(prev => prev.map(w => w.id === word.id ? { ...w, meaning: tempEditValue } : w));
+                                              const updated = { ...word, meaning: tempEditValue };
+                                              setVocabulary(prev => prev.map(w => w.id === word.id ? updated : w));
+                                              if (session?.user?.id) {
+                                                syncSingleWordToCloud(supabase, session.user.id, updated);
+                                              }
                                               setEditingWordId(null);
                                               setEditField(null);
                                               flashSuccess(`Definition updated successfully!`);
@@ -858,7 +1370,11 @@ journey,noun,an act of traveling from one place to another,Familiar`;
                                           <button
                                             onClick={() => {
                                               if (!tempEditValue.trim()) return;
-                                              setVocabulary(prev => prev.map(w => w.id === word.id ? { ...w, word: tempEditValue.trim() } : w));
+                                              const updated = { ...word, word: tempEditValue.trim() };
+                                              setVocabulary(prev => prev.map(w => w.id === word.id ? updated : w));
+                                              if (session?.user?.id) {
+                                                syncSingleWordToCloud(supabase, session.user.id, updated);
+                                              }
                                               setEditingWordId(null);
                                               setEditField(null);
                                               flashSuccess(`Spelling modified to "${tempEditValue.trim()}"!`);
@@ -890,6 +1406,9 @@ journey,noun,an act of traveling from one place to another,Familiar`;
                                           <button
                                             onClick={() => {
                                               setVocabulary(prev => prev.filter(w => w.id !== word.id));
+                                              if (session?.user?.id) {
+                                                deleteSingleWordFromCloud(supabase, session.user.id, word.word, word.level);
+                                              }
                                               setActiveWordId(null);
                                               setEditingWordId(null);
                                               setEditField(null);
@@ -955,7 +1474,7 @@ journey,noun,an act of traveling from one place to another,Familiar`;
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     );
                   })
                 )}
@@ -1210,18 +1729,21 @@ creative,adjective,having good imagination or original ideas,Mastered"
       {/* --- NEW INTERACTIVE DIALOG MODAL: SUPABASE SYNC ENGINE --- */}
       <AnimatePresence>
         {showSupabaseModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-xs select-none">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs select-none">
             <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 15 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 10 }}
-              className="bg-white rounded-xl border border-slate-200 p-6 shadow-2xl max-w-md w-full text-left"
+              className={`rounded-xl border p-6 shadow-2xl max-w-md w-full text-left ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-slate-205'}`}
             >
               <SupabaseSyncPanel
                 vocabulary={vocabulary}
                 setVocabulary={setVocabulary}
                 flashSuccess={flashSuccess}
                 onClose={() => setShowSupabaseModal(false)}
+                session={session}
+                isDark={isDark}
+                onLogOut={handleLogOut}
               />
             </motion.div>
           </div>
