@@ -19,7 +19,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
-  FileCode,
   GraduationCap,
   Sparkles,
   HelpCircle,
@@ -59,8 +58,6 @@ export default function App() {
   const [selectedPos, setSelectedPos] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
 
-  // Interactive CSV Exporter States
-  const [exportFormat, setExportFormat] = useState<'FLAT' | 'GROUPED' | 'MAP'>('FLAT');
   const [csvInput, setCsvInput] = useState('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -86,7 +83,6 @@ export default function App() {
   const [tempEditValue, setTempEditValue] = useState("");
 
   // Modern Theme visibility toggle states
-  const [showJsonPanel, setShowJsonPanel] = useState(true);
   const [showImporter, setShowImporter] = useState(false);
   const [showAddWordModal, setShowAddWordModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
@@ -260,61 +256,6 @@ journey,noun,an act of traveling from one place to another,Familiar`;
 
   const totalPages = Math.ceil(filteredVocabulary.length / itemsPerPage);
 
-  // Formatted preview format builders
-  const structuredJSON = useMemo(() => {
-    if (exportFormat === 'FLAT') {
-      return JSON.stringify(filteredVocabulary, null, 2);
-    } else if (exportFormat === 'GROUPED') {
-      const grouped: Record<string, Omit<VocabularyWord, 'level' | 'levelName'>[]> = {};
-      filteredVocabulary.forEach(item => {
-        const lvl = item.level;
-        if (!grouped[lvl]) grouped[lvl] = [];
-        grouped[lvl].push({
-          id: item.id,
-          word: item.word,
-          pos: item.pos,
-          meaning: item.meaning,
-          status: item.status
-        });
-      });
-      return JSON.stringify(grouped, null, 2);
-    } else {
-      const map: Record<string, { pos: string; meaning: string; level: string; status: string }> = {};
-      filteredVocabulary.forEach(item => {
-        map[item.word] = {
-          pos: item.pos,
-          meaning: item.meaning,
-          level: item.level,
-          status: item.status
-        };
-      });
-      return JSON.stringify(map, null, 2);
-    }
-  }, [filteredVocabulary, exportFormat]);
-
-  const handleCopyJSON = () => {
-    navigator.clipboard.writeText(structuredJSON).then(() => {
-      flashSuccess("Copied JSON structured dataset export!");
-    }).catch(err => console.error(err));
-  };
-
-  const handleDownloadJSON = () => {
-    try {
-      const blob = new Blob([structuredJSON], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `cefr_vocabulary_${exportFormat.toLowerCase()}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      flashSuccess("JSON Download generated successfully!");
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   // Derive metric updates
   const stats = useMemo(() => {
     const total = filteredVocabulary.length;
@@ -367,23 +308,6 @@ journey,noun,an act of traveling from one place to another,Familiar`;
           {/* Core Panel action triggers */}
           <div className="flex flex-wrap items-center gap-2.5">
             
-            {/* Live side JSON visibility trigger */}
-            <button
-              onClick={() => {
-                setShowJsonPanel(!showJsonPanel);
-                flashSuccess(showJsonPanel ? "Disabled structured JSON sidebar" : "Enabled structured JSON sidebar view.");
-              }}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 border transition-all cursor-pointer ${
-                showJsonPanel 
-                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200 shadow-inner' 
-                  : 'bg-white text-slate-705 hover:bg-slate-50 border-slate-200'
-              }`}
-              title="Toggle Live exportable JSON pane view on right hand side"
-            >
-              <FileCode className="w-4 h-4" />
-              <span>{showJsonPanel ? "Live JSON Panel On" : "JSON Panel Hidden"}</span>
-            </button>
-
             {/* Supabase Cloud Sync Action Trigger */}
             <button
               onClick={() => {
@@ -1152,87 +1076,7 @@ creative,adjective,having good imagination or original ideas,Mastered"
           </AnimatePresence>
         </section>
 
-        {/* REUSABLE STRUCTURED LIVE EXPORT PANEL (TOGGLEABLE) */}
-        <AnimatePresence>
-          {showJsonPanel && (
-            <motion.aside
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 340, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              className="w-full lg:w-85 border border-slate-200 rounded-xl overflow-hidden bg-slate-900 text-slate-200 flex flex-col shadow-xs"
-            >
-              
-              {/* Output Header */}
-              <div className="p-3 bg-slate-950 flex items-center justify-between border-b border-slate-850 shrink-0">
-                <span className="text-[11px] font-bold font-mono tracking-wider text-indigo-400 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-                  <span>STRUCTURED DATAPOOL OUT</span>
-                </span>
 
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={handleCopyJSON}
-                    className="text-[9px] font-mono font-bold bg-slate-800 text-slate-300 hover:text-white px-2 py-0.5 rounded border border-slate-750 transition-colors cursor-pointer"
-                  >
-                    Copy Output
-                  </button>
-                  <button
-                    onClick={handleDownloadJSON}
-                    className="text-[9px] font-mono font-bold bg-indigo-900 text-indigo-200 hover:text-white px-2 py-0.5 rounded border border-indigo-850 transition-colors cursor-pointer"
-                    title="Export JSON payload"
-                  >
-                    Save.json
-                  </button>
-                </div>
-              </div>
-
-              {/* Schema variations picker */}
-              <div className="p-3 bg-slate-900/60 border-b border-slate-950 flex items-center justify-between text-[11px] text-slate-400 shrink-0">
-                <span className="font-mono">JSON Mapping Schema:</span>
-                <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-800">
-                  {(['FLAT', 'GROUPED', 'MAP'] as const).map(f => (
-                    <button
-                      key={f}
-                      onClick={() => setExportFormat(f)}
-                      className={`px-2 py-0.5 text-[9px] rounded-md font-bold cursor-pointer transition-all ${
-                        exportFormat === f 
-                          ? 'bg-indigo-600 text-white shadow-xs' 
-                          : 'text-slate-500 hover:text-slate-300'
-                      }`}
-                    >
-                      {f}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Live JSON Preview Box Workspace */}
-              <div className="flex-grow overflow-auto p-4 font-mono text-[10px] leading-relaxed bg-slate-950/95 scrollbar-thin select-text selection:bg-indigo-900 selection:text-white">
-                <pre className="text-emerald-400 font-mono whitespace-pre-wrap select-all">
-                  <code>{structuredJSON}</code>
-                </pre>
-              </div>
-
-              {/* Visual active schema Blueprint guide */}
-              <div className="p-3.5 bg-slate-950 border-t border-slate-850">
-                <span className="text-[9px] font-bold text-slate-500 tracking-wider block uppercase mb-1.5">
-                  Blueprinted Output Model
-                </span>
-                <div className="p-2.5 bg-slate-900 rounded-lg text-[9px] text-slate-300 font-mono border border-slate-800">
-                  {exportFormat === 'FLAT' && (
-                    <pre className="overflow-x-auto select-none leading-relaxed text-indigo-300">{`[\n  {\n    "id": "string",\n    "word": "string",\n    "pos": "verb|noun...",\n    "meaning": "string",\n    "status": "Learning" | "Mastered"\n  }\n]`}</pre>
-                  )}
-                  {exportFormat === 'GROUPED' && (
-                    <pre className="overflow-x-auto select-none leading-relaxed text-emerald-300">{`{\n  "A1": [\n    { "id", "word", "pos", "meaning", "status" }\n  ],\n  "B1": [ ... ]\n}`}</pre>
-                  )}
-                  {exportFormat === 'MAP' && (
-                    <pre className="overflow-x-auto select-none leading-relaxed text-pink-300">{`{\n  "[word_spelling]": {\n    "pos": "string",\n    "meaning": "string",\n    "level": "A1" | "B2",\n    "status": "string"\n  }\n}`}</pre>
-                  )}
-                </div>
-              </div>
-            </motion.aside>
-          )}
-        </AnimatePresence>
       </main>
 
       {/* --- REUSABLE SYSTEM DIALOG MODEL: ADD WORD WIZARD --- */}
