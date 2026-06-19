@@ -845,21 +845,7 @@ journey,noun,an act of traveling from one place to another,Familiar`;
             >
               <Plus className="w-4 h-4" />
               <span>Add Word Wizard</span>
-            </button>
-
-            {/* Custom GitHub Hosting Info trigger */}
-            <button
-              onClick={() => setShowGithubGuide(true)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-sm transition-all cursor-pointer focus:outline-none ${
-                isDark 
-                  ? 'bg-zinc-900 border border-zinc-750 hover:bg-zinc-850 text-zinc-100' 
-                  : 'bg-slate-900 hover:bg-slate-800 text-white'
-              }`}
-              title="Display information on how to build and host this on your custom GitHub Pages"
-            >
-              <ExternalLink className="w-3.5 h-3.5 text-slate-300" />
-              <span>GitHub Hosting Guide</span>
-            </button>
+  
           </div>
         </div>
       </header>
